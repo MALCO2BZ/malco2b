@@ -2,9 +2,9 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import DeckGL from '@deck.gl/react';
 import { ScatterplotLayer } from '@deck.gl/layers';
 import MapGL, { Source, Layer } from 'react-map-gl/maplibre';
-import type { MapMouseEvent, ExpressionSpecification } from 'maplibre-gl';
+import type { MapMouseEvent, MapGeoJSONFeature, ExpressionSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { Scan, Eye, Activity, X, MapPin, RefreshCw, Clock, Video, ChevronUp, ChevronDown, Settings, Shuffle, Filter, Check } from 'lucide-react';
+import { Scan, Eye, Activity, X, MapPin, RefreshCw, Clock, Video, ChevronUp, ChevronDown, Settings, Shuffle, Filter, Check, Search, ExternalLink } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Rnd } from 'react-rnd';
 import Hls from 'hls.js';
@@ -363,7 +363,8 @@ const CORS_ENABLED_DOMAINS = [
 // Whether a camera's feed can display: a live stream, or the scraper's per-camera
 // `directEligible` flag (opencctv's force_direct / the legacy native-source allowlist).
 function isFeedWorking(cam: CameraFeature): boolean {
-  if (cam.properties.streamUrl && cam.properties.streamUrl.trim()) return true;
+  // A stream URL alone is not proof that a device is intentionally public.
+  // The ingestion pipeline must explicitly mark the source as eligible.
   return !!cam.properties.directEligible;
 }
 
@@ -436,6 +437,7 @@ function App() {
   const [filterCountries, setFilterCountries] = useState<string[]>([]);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [filterSearch, setFilterSearch] = useState('');
+  const [cameraSearch, setCameraSearch] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -710,18 +712,30 @@ function App() {
     const active = new Set(filterCountries);
     for (let i = 0; i < data.count; i++) {
       if (!data.live[i] && data.de[i] !== 1) continue;
+      if (cameraSearch.trim()) {
+        const q = cameraSearch.trim().toLocaleLowerCase();
+        const name = labels?.name[i] || '';
+        const city = labels ? labels.cityDict[labels.city[i]] : '';
+        const country = countryNameFor(data.ccDict[data.cc[i]], data.srcDict[data.src[i]]);
+        if (![name, city, country, data.ccDict[data.cc[i]]].some(v => v.toLocaleLowerCase().includes(q))) continue;
+      }
       if (active.size === 0 ||
           active.has(countryNameFor(data.ccDict[data.cc[i]], data.srcDict[data.src[i]]))) {
         idx.push(i);
       }
     }
     return idx;
-  }, [data, filterCountries]);
+  }, [data, labels, filterCountries, cameraSearch]);
+
+  const searchResults = useMemo(() => {
+    if (!data || !labels || cameraSearch.trim().length < 2) return [] as { index: number; camera: CameraFeature }[];
+    return filteredIndices.slice(0, 8).map(index => ({ index, camera: camAt(data, index, labels, null) }));
+  }, [data, labels, filteredIndices, cameraSearch]);
 
   // GeoJSON source for the 3D globe path — built only when 3D is active so the
   // 2D default never materializes 100k+ features.
   const camerasGeoJson = useMemo(() => {
-    if (!data || !is3D) return { type: 'FeatureCollection', features: [] as any[] };
+    if (!data || !is3D) return { type: 'FeatureCollection', features: [] } as GeoJSON.FeatureCollection;
     return {
       type: 'FeatureCollection',
       // Carry the array index, not id/streamUrl — MapLibre serializes every property
@@ -731,18 +745,18 @@ function App() {
         geometry: { type: 'Point', coordinates: [data.lon[i], data.lat[i]] },
         properties: { i, live: data.live[i] },
       })),
-    };
+    } as GeoJSON.FeatureCollection;
   }, [data, is3D, filteredIndices]);
 
   const hoveredGeoJson = useMemo(() => ({
     type: 'FeatureCollection',
     features: hovered ? [hovered] : []
-  }), [hovered]);
+  }) as GeoJSON.FeatureCollection, [hovered]);
 
   const selectedGeoJson = useMemo(() => ({
     type: 'FeatureCollection',
     features: selectedCamera ? [selectedCamera] : []
-  }), [selectedCamera]);
+  }) as GeoJSON.FeatureCollection, [selectedCamera]);
 
   // Auto-refreshes the selected camera's image per refreshIntervalMs; only the
   // selected feed polls.
@@ -857,7 +871,7 @@ function App() {
   // clickable. Click-only — MapLibre's box query costs ~100ms, too slow for hover;
   // the 2D path gets the same forgiveness for free via deck's `pickingRadius`.
   const pickNear = (e: MapMouseEvent) => {
-    const exact = e.features?.[0];
+    const exact = (e as MapMouseEvent & { features?: MapGeoJSONFeature[] }).features?.[0];
     if (exact) return exact;
     const { x, y } = e.point;
     const near = e.target.queryRenderedFeatures(
@@ -882,7 +896,7 @@ function App() {
   };
 
   const onMapMouseMove = (e: MapMouseEvent) => {
-    const feature = e.features?.[0];
+    const feature = (e as MapMouseEvent & { features?: MapGeoJSONFeature[] }).features?.[0];
     const idx = feature && data ? (feature.properties?.i ?? -1) : -1;
     // Only update hover state when the hovered camera changes.
     if (idx !== hoveredIdxRef.current) {
@@ -1020,8 +1034,8 @@ function App() {
           ref={globeRef as never}
           initialViewState={initialView}
           onMove={e => {
-            if (e.viewState && Number.isFinite(e.viewState.latitude) && Number.isFinite(e.viewState.longitude)) {
-              trackView(e.viewState);
+            if (e.viewState && 'latitude' in e.viewState && 'longitude' in e.viewState && Number.isFinite(e.viewState.latitude) && Number.isFinite(e.viewState.longitude)) {
+              trackView(e.viewState as typeof INITIAL_VIEW_STATE);
             }
           }}
           mapStyle={mapStyle}
@@ -1127,8 +1141,9 @@ function App() {
           key="tactical-deck"
           initialViewState={initialView}
           onViewStateChange={e => {
-            if (e.viewState && Number.isFinite(e.viewState.latitude) && Number.isFinite(e.viewState.longitude)) {
-              trackView(e.viewState);
+            const v = e.viewState;
+            if (v && 'latitude' in v && 'longitude' in v && Number.isFinite(v.latitude) && Number.isFinite(v.longitude)) {
+              trackView(v as typeof INITIAL_VIEW_STATE);
             }
           }}
           controller={true}
@@ -1205,10 +1220,10 @@ function App() {
           {/* Logo Section */}
           <div className="mb-6 flex items-start justify-between">
             <div>
-              <h1 className="text-4xl font-extrabold tracking-tighter text-white">ARGUS</h1>
+              <h1 className="text-4xl font-extrabold tracking-tighter text-white">WORLDCAM</h1>
               <div className="flex items-center gap-2 mt-2">
                 <Scan className="w-4 h-4 text-[#00e5ff]" />
-                <p className="text-xs text-[#00e5ff] font-mono tracking-widest uppercase">Global Network</p>
+                <p className="text-xs text-[#00e5ff] font-mono tracking-widest uppercase">Public camera atlas</p>
               </div>
             </div>
             <button
@@ -1227,6 +1242,28 @@ function App() {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.2 }}
               >
+                <div className="relative mb-6">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                  <input
+                    value={cameraSearch}
+                    onChange={e => setCameraSearch(e.target.value)}
+                    placeholder="Search city, country, or camera"
+                    aria-label="Search city, country, or camera"
+                    className="w-full rounded-xl bg-black/30 border border-white/10 pl-10 pr-9 py-3 text-sm text-white placeholder:text-gray-600 outline-none focus:border-[#00e5ff]/60"
+                  />
+                  {cameraSearch && <button onClick={() => setCameraSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white" aria-label="Clear search"><X className="w-4 h-4" /></button>}
+                  {searchResults.length > 0 && (
+                    <div className="absolute left-0 right-0 top-full mt-2 z-50 rounded-xl border border-white/10 bg-[#05090C]/95 backdrop-blur-xl shadow-2xl overflow-hidden">
+                      {searchResults.map(({ index, camera }) => (
+                        <button key={camera.properties.id} onClick={() => { selectCamera(index); jumpTo({ ...viewRef.current, longitude: camera.geometry.coordinates[0], latitude: camera.geometry.coordinates[1], zoom: Math.max(viewRef.current.zoom, 10) }); setCameraSearch(''); }} className="w-full text-left px-3 py-2.5 hover:bg-white/10 border-b border-white/5 last:border-0">
+                          <span className="block text-sm text-white truncate">{camera.properties.name || 'Unnamed camera'}</span>
+                          <span className="block text-[11px] text-gray-500 truncate">{formatLocation(camera)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {cameraSearch.trim().length >= 2 && labels && searchResults.length === 0 && <p className="absolute left-0 right-0 top-full mt-2 z-50 rounded-xl border border-white/10 bg-[#05090C]/95 p-3 text-xs text-gray-500">No public camera found</p>}
+                </div>
                 {/* Stats Grid */}
                 <div className="grid grid-cols-2 gap-4 mb-8">
                   <div className="bg-[#0A1015]/40 rounded-2xl p-5 border border-white/5 relative overflow-hidden group">
@@ -1470,6 +1507,12 @@ function App() {
                     </span>
                   </div>
                 )}
+                {feedUrl && (
+                  <a href={feedUrl} target="_blank" rel="noopener noreferrer" className="mt-4 flex items-center justify-center gap-2 rounded-xl border border-[#00e5ff]/25 bg-[#00e5ff]/5 px-3 py-2 text-xs font-semibold text-[#00e5ff] hover:bg-[#00e5ff]/10 transition-colors">
+                    <ExternalLink className="w-3.5 h-3.5" /> Open official source/feed
+                  </a>
+                )}
+                <p className="mt-3 text-[10px] leading-relaxed text-gray-600">Source: {selectedCamera.properties.source ?? 'unknown'} · only catalogued public feeds are eligible; private or auth-gated devices are excluded.</p>
               </div>
             </div>
 

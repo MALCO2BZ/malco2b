@@ -90,6 +90,9 @@ def build_feature(cam_id: str, name: str, lat: float, lon: float,
     if update_rate is not None:
         props["updateRate"] = update_rate
     props.update(kwargs)
+    # Every record carries a machine-readable policy marker. Scrapers may add
+    # richer provenance, but no source is silently treated as private access.
+    props.setdefault("accessPolicy", "public-source")
     return {
         "type":     "Feature",
         "geometry": {"type": "Point", "coordinates": [lon, lat]},

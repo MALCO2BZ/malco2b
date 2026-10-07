@@ -320,6 +320,7 @@ def _feature_from_row(row: sqlite3.Row) -> dict:
         "feedType": row["feed_type"],
         "source":   row["source"],
         "directEligible": bool(row["direct_eligible"]),
+        "accessPolicy": "public-source",
     }
     if row["update_rate"] is not None:
         props["updateRate"] = row["update_rate"]

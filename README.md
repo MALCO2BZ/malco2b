@@ -1,6 +1,10 @@
-# ARGUS — Global Camera Intelligence
+# WorldCam — Public Camera Atlas
 
-Argus is an open-source, real-time interactive map of **229,000+ public traffic and CCTV cameras** from government and commercial sources worldwide — highway DOT cameras, city traffic cams, and public webcams, aggregated from open data APIs and rendered on a GPU-accelerated map (with a 3D globe view built in). Dashboard for exploring live camera feeds, HLS video streams, and static snapshot imagery by country, region, or city, backed by a Python scraping pipeline that keeps the dataset current.
+WorldCam is the user-facing continuation of the MIT-licensed Argus camera map. It focuses on intentionally published, public camera sources and keeps source provenance visible.
+
+WorldCam is an open-source, real-time interactive map of **229,000+ intentionally public traffic cameras and webcams** from government and commercial sources worldwide — highway DOT cameras, city traffic cams, and public webcams, aggregated from published APIs and rendered on a GPU-accelerated map with a fluid 3D globe. It supports search by city/country, source-aware camera details, HLS video streams, and static snapshot imagery.
+
+See [LEGAL.md](LEGAL.md) for the reuse, provenance, privacy, and removal policy. The project remains derived from [GoSlowPoke168/Argus](https://github.com/GoSlowPoke168/Argus) under the MIT License; keep the notice in `LICENSE` when redistributing.
 
 It's two independent halves:
 

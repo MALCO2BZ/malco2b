@@ -20,7 +20,9 @@ Non-eligible cameras are still stored (mapped, greyed out) for a future proxy ph
 """
 
 import time
+import ipaddress
 import requests
+from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from scrapers.utils import log, log_progress, build_feature, HEADERS
@@ -71,6 +73,32 @@ def _direct_eligible(rec: dict, feed_type: str) -> bool:
     return True
 
 
+def _is_public_feed_url(url: str) -> bool:
+    """Reject local/private targets before they can enter the public catalog.
+
+    This is intentionally conservative: OpenCCTV is a discovery index, not a
+    permission grant. A feed must be HTTP(S) (or an ipcamlive alias awaiting
+    resolution), must not contain credentials, and must not point at a literal
+    private/reserved IP or local hostname.
+    """
+    if url.startswith("ipcamlive://"):
+        return True
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or parsed.username or parsed.password:
+            return False
+        host = (parsed.hostname or "").lower().rstrip(".")
+        if not host or host in {"localhost", "localhost.localdomain"} or host.endswith((".local", ".internal", ".home", ".lan")):
+            return False
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            return True
+        return address.is_global
+    except ValueError:
+        return False
+
+
 def _to_feature(rec: dict) -> dict | None:
     try:
         lat = float(rec.get("lat"))
@@ -81,7 +109,7 @@ def _to_feature(rec: dict) -> dict | None:
         return None
 
     feed_url = rec.get("feed_url") or ""
-    if not feed_url:
+    if not feed_url or not _is_public_feed_url(feed_url):
         return None
 
     ft = (rec.get("feed_type") or "image").lower()
@@ -110,6 +138,8 @@ def _to_feature(rec: dict) -> dict | None:
         feed_type       = ft,
         direct_eligible = _direct_eligible(rec, ft),
         update_rate     = update_rate,
+        accessPolicy    = "public-catalog",
+        provenanceUrl   = "https://opencctv.org/",
     )
 
 

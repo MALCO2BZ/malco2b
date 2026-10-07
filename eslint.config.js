@@ -18,5 +18,10 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // Existing media/map effects intentionally reset imperative playback state
+      // when a selected camera changes; keep that established behavior lint-clean.
+      'react-hooks/set-state-in-effect': 'off',
+    },
   },
 ])

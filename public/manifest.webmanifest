@@ -1,7 +1,7 @@
 {
-  "name": "WorldCam — Public Camera Atlas",
-  "short_name": "WorldCam",
-  "description": "Explore intentionally public cameras and webcams around the world.",
+  "name": "WorldScope — Public World Atlas",
+  "short_name": "WorldScope",
+  "description": "Explore intentionally public cameras, aircraft, satellites and shared mobility.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#05090C",

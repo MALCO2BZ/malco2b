@@ -102,10 +102,10 @@ function HlsPlayer({ url, cacheBust, onFallback, proxyBase }: { url: string; cac
     // First failure escalates to the proxy; failing again (or no proxy) means static.
     const escalate = () => {
       if (!useProxy && canProxy) {
-        console.log('[Argus] Stream failed direct — retrying via local proxy.');
+        console.log('[WorldScope] Stream failed direct — retrying via local proxy.');
         setUseProxy(true);
       } else {
-        console.log('[Argus] Stream unavailable — falling back to static image.');
+        console.log('[WorldScope] Stream unavailable — falling back to static image.');
         onFallback?.();
       }
     };
@@ -134,7 +134,7 @@ function HlsPlayer({ url, cacheBust, onFallback, proxyBase }: { url: string; cac
       // Detect CORS blocks or dead streams and escalate (proxy → static).
       hls.on(Hls.Events.ERROR, (_evt, data) => {
         if (data.fatal) {
-          console.log(`[Argus] Stream ${data.details}${useProxy ? ' (via proxy)' : ''}`);
+          console.log(`[WorldScope] Stream ${data.details}${useProxy ? ' (via proxy)' : ''}`);
           hls?.destroy();
           escalate();
         }
@@ -473,7 +473,7 @@ function App() {
   const [aircraft, setAircraft] = useState<AircraftPoint[]>([]);
   const [satellites, setSatellites] = useState<SatellitePoint[]>([]);
   const [mobility, setMobility] = useState<MobilityPoint[]>([]);
-  const [mobilityFeedUrl, setMobilityFeedUrl] = useState(() => window.localStorage.getItem('worldcam.gbfsUrl') || '');
+  const [mobilityFeedUrl, setMobilityFeedUrl] = useState(() => window.localStorage.getItem('worldscope.gbfsUrl') || window.localStorage.getItem('worldcam.gbfsUrl') || '');
   const [externalLayerStatus, setExternalLayerStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const satelliteImageryDate = useMemo(() => {
     const date = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
@@ -757,7 +757,7 @@ function App() {
         if (!cancelled) setMobility(points);
       } catch { if (!cancelled) setMobility([]); }
     };
-    window.localStorage.setItem('worldcam.gbfsUrl', mobilityFeedUrl.trim());
+    window.localStorage.setItem('worldscope.gbfsUrl', mobilityFeedUrl.trim());
     loadMobility();
     const timer = window.setInterval(loadMobility, 5 * 60_000);
     return () => { cancelled = true; controller.abort(); window.clearInterval(timer); };
@@ -1453,7 +1453,7 @@ function App() {
         </div>
       )}
 
-      {/* ── ARGUS HUD — TOP RIGHT ── */}
+      {/* ── WORLDSCOPE HUD — TOP RIGHT ── */}
       <div style={{ position: 'absolute', top: 'clamp(12px, 4vw, 32px)', right: 'clamp(12px, 4vw, 32px)', zIndex: 30, width: 'min(340px, calc(100vw - 24px))' }} className="pointer-events-auto worldcam-hud">
         <motion.div
           animate={{ height: isHudMinimized ? 120 : 'auto' }}
@@ -1462,7 +1462,7 @@ function App() {
           {/* Logo Section */}
           <div className="mb-6 flex items-start justify-between">
             <div>
-              <h1 className="text-4xl font-extrabold tracking-tighter text-white">WORLDCAM</h1>
+              <h1 className="text-4xl font-extrabold tracking-tighter text-white">WORLDSCOPE</h1>
               <div className="flex items-center gap-2 mt-2">
                 <Scan className="w-4 h-4 text-[#00e5ff]" />
                 <p className="text-xs text-[#00e5ff] font-mono tracking-widest uppercase">Public camera atlas</p>
@@ -2026,7 +2026,7 @@ function App() {
               </div>
 
               <div className="mt-6 pt-6 border-t border-white/5">
-                <p className="text-[10px] text-gray-600 font-mono text-center uppercase tracking-widest">Argus v1.4.2 · Secure</p>
+                <p className="text-[10px] text-gray-600 font-mono text-center uppercase tracking-widest">WorldScope · Public sources</p>
               </div>
               </div>
             </motion.div>

@@ -4,7 +4,7 @@ import { ScatterplotLayer } from '@deck.gl/layers';
 import MapGL, { Source, Layer } from 'react-map-gl/maplibre';
 import type { MapMouseEvent, MapGeoJSONFeature, ExpressionSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { Scan, Eye, Activity, X, MapPin, RefreshCw, Clock, Video, ChevronUp, ChevronDown, Settings, Shuffle, Filter, Check, Search, ExternalLink, Plane, Satellite } from 'lucide-react';
+import { Scan, Eye, Activity, X, MapPin, RefreshCw, Clock, Video, ChevronUp, ChevronDown, Settings, Shuffle, Filter, Check, Search, ExternalLink, Plane, Satellite, Bike } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Rnd } from 'react-rnd';
 import Hls from 'hls.js';
@@ -296,6 +296,15 @@ interface SatellitePoint {
   altitude: number;
 }
 
+interface MobilityPoint {
+  kind: 'mobility';
+  id: string;
+  name: string;
+  longitude: number;
+  latitude: number;
+  available: number;
+}
+
 // Three-tier payload from store.py:export_compact. Dict-encoded parallel arrays let
 // deck.gl render without one JS object per camera. Split because per-camera strings
 // (~80% of a combined payload) only matter for whichever camera is open:
@@ -458,11 +467,13 @@ function App() {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [filterSearch, setFilterSearch] = useState('');
   const [cameraSearch, setCameraSearch] = useState('');
-  const [activeLayers, setActiveLayers] = useState({ cameras: true, aircraft: false, satellites: false, satelliteImagery: false });
+  const [activeLayers, setActiveLayers] = useState({ cameras: true, aircraft: false, satellites: false, satelliteImagery: false, mobility: false });
   const [cameraLiveOnly, setCameraLiveOnly] = useState(false);
   const [satelliteOpacity, setSatelliteOpacity] = useState(0.58);
   const [aircraft, setAircraft] = useState<AircraftPoint[]>([]);
   const [satellites, setSatellites] = useState<SatellitePoint[]>([]);
+  const [mobility, setMobility] = useState<MobilityPoint[]>([]);
+  const [mobilityFeedUrl, setMobilityFeedUrl] = useState(() => window.localStorage.getItem('worldcam.gbfsUrl') || '');
   const [externalLayerStatus, setExternalLayerStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const satelliteImageryDate = useMemo(() => {
     const date = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
@@ -700,6 +711,58 @@ function App() {
     return () => { cancelled = true; controller.abort(); window.clearInterval(timer); };
   }, [activeLayers.satellites]);
 
+  // Public shared-mobility layer. Operators publish GBFS feeds for stations and
+  // available vehicles; this never probes a private device or local network.
+  useEffect(() => {
+    if (!activeLayers.mobility || !mobilityFeedUrl.trim()) {
+      setMobility([]);
+      return;
+    }
+    let cancelled = false;
+    const controller = new AbortController();
+    const loadMobility = async () => {
+      try {
+        const rootUrl = mobilityFeedUrl.trim();
+        const root = await fetch(rootUrl, { signal: controller.signal }).then(r => {
+          if (!r.ok) throw new Error(`GBFS ${r.status}`);
+          return r.json();
+        }) as Record<string, unknown>;
+        const feeds: { name: string; url: string }[] = [];
+        const visit = (value: unknown) => {
+          if (!value || typeof value !== 'object') return;
+          if (Array.isArray(value)) { value.forEach(visit); return; }
+          const object = value as Record<string, unknown>;
+          if (typeof object.name === 'string' && typeof object.url === 'string') feeds.push({ name: object.name, url: object.url });
+          Object.values(object).forEach(visit);
+        };
+        visit(root.data ?? root);
+        const endpoint = (names: string[]) => {
+          const match = feeds.find(feed => names.includes(feed.name));
+          return match ? new URL(match.url, rootUrl).href : '';
+        };
+        const infoUrl = endpoint(['station_information', 'station_info']);
+        const statusUrl = endpoint(['station_status']);
+        if (!infoUrl || !statusUrl) throw new Error('GBFS station feeds missing');
+        const [info, status] = await Promise.all([
+          fetch(infoUrl, { signal: controller.signal }).then(r => r.json()),
+          fetch(statusUrl, { signal: controller.signal }).then(r => r.json()),
+        ]) as [{ data?: { stations?: Record<string, unknown>[] } }, { data?: { stations?: Record<string, unknown>[] } }];
+        const statuses = new Map((status.data?.stations ?? []).map(station => [String(station.station_id), station]));
+        const points = (info.data?.stations ?? []).flatMap(station => {
+          const longitude = Number(station.lon), latitude = Number(station.lat);
+          if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) return [];
+          const current = statuses.get(String(station.station_id));
+          return [{ kind: 'mobility' as const, id: String(station.station_id), name: String(station.name ?? 'Shared mobility station'), longitude, latitude, available: Number(current?.num_vehicles_available ?? current?.num_bikes_available ?? 0) }];
+        });
+        if (!cancelled) setMobility(points);
+      } catch { if (!cancelled) setMobility([]); }
+    };
+    window.localStorage.setItem('worldcam.gbfsUrl', mobilityFeedUrl.trim());
+    loadMobility();
+    const timer = window.setInterval(loadMobility, 5 * 60_000);
+    return () => { cancelled = true; controller.abort(); window.clearInterval(timer); };
+  }, [activeLayers.mobility, mobilityFeedUrl]);
+
   // Reset the sync UI back to the three idle buttons.
   const resetSync = () => {
     setSyncStatus('idle'); setSyncLog([]); setSyncSummary(null); setSyncTarget(null);
@@ -859,6 +922,10 @@ function App() {
         type: 'Feature', geometry: { type: 'Point', coordinates: [point.longitude, point.latitude] },
         properties: { i, live: 0, layer: 'satellite' },
       })) : []),
+      ...(activeLayers.mobility ? mobility.map((point, i) => ({
+        type: 'Feature', geometry: { type: 'Point', coordinates: [point.longitude, point.latitude] },
+        properties: { i, live: 0, layer: 'mobility' },
+      })) : []),
     ];
     return {
       type: 'FeatureCollection',
@@ -866,7 +933,7 @@ function App() {
       // to its tiler worker, saving ~10MB and removing the need for an id->index lookup.
       features,
     } as GeoJSON.FeatureCollection;
-  }, [data, is3D, filteredIndices, activeLayers.aircraft, activeLayers.satellites, aircraft, satellites]);
+  }, [data, is3D, filteredIndices, activeLayers.aircraft, activeLayers.satellites, activeLayers.mobility, aircraft, satellites, mobility]);
 
   const hoveredGeoJson = useMemo(() => ({
     type: 'FeatureCollection',
@@ -1131,6 +1198,12 @@ function App() {
       getFillColor: [190, 120, 255, 210], getRadius: 9000,
       radiusMinPixels: 2, radiusMaxPixels: 7, pickable: true,
     })] : []),
+    ...(activeLayers.mobility ? [new ScatterplotLayer<MobilityPoint>({
+      id: 'public-mobility', data: mobility,
+      getPosition: d => [d.longitude, d.latitude],
+      getFillColor: [52, 211, 153, 220], getRadius: 7000,
+      radiusMinPixels: 2, radiusMaxPixels: 7, pickable: true,
+    })] : []),
     ...(selectedCamera ? [
       new ScatterplotLayer<CameraFeature>({
         id: 'camera-highlight',
@@ -1207,6 +1280,7 @@ function App() {
                   'match', ['get', 'layer'],
                   'aircraft', '#ffaa00',
                   'satellite', '#be78ff',
+                  'mobility', '#34d399',
                   ['case', GLOBE_IS_LIVE, '#00ff88', '#00e5ff']
                 ],
                 'circle-opacity': [
@@ -1787,6 +1861,7 @@ function App() {
                     ['aircraft', 'Aircraft · OpenSky', Plane],
                     ['satellites', 'Satellites · CelesTrak', Satellite],
                     ['satelliteImagery', 'Earth imagery · NASA GIBS', Satellite],
+                    ['mobility', 'Bikes/scooters · GBFS', Bike],
                   ] as const).map(([key, label, Icon]) => (
                     <button key={key} onClick={() => setActiveLayers(prev => ({ ...prev, [key]: !prev[key] }))} className="w-full flex items-center justify-between py-2 text-left">
                       <span className="flex items-center gap-2 text-xs text-gray-300"><Icon className="w-4 h-4 text-[#00e5ff]" />{label}</span>
@@ -1803,6 +1878,11 @@ function App() {
                     <div className="flex items-center justify-between mb-2"><span className="text-xs text-gray-300">Satellite opacity</span><span className="text-[10px] text-[#be78ff]">{Math.round(satelliteOpacity * 100)}%</span></div>
                     <input aria-label="Satellite imagery opacity" type="range" min="0.15" max="0.9" step="0.05" value={satelliteOpacity} onChange={e => setSatelliteOpacity(Number(e.target.value))} className="w-full h-1 accent-[#be78ff]" />
                     <p className="mt-2 text-[9px] text-gray-500">NASA GIBS · image date {satelliteImageryDate}</p>
+                  </div>}
+                  {activeLayers.mobility && <div className="mt-3 rounded-xl border border-emerald-400/20 bg-emerald-400/5 px-3 py-2.5">
+                    <label className="text-[10px] uppercase tracking-wider text-emerald-300" htmlFor="gbfs-url">Official GBFS feed URL</label>
+                    <input id="gbfs-url" value={mobilityFeedUrl} onChange={e => setMobilityFeedUrl(e.target.value)} placeholder="https://…/gbfs.json" className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-[11px] text-white placeholder:text-gray-600 outline-none focus:border-emerald-300/60" />
+                    <p className="mt-2 text-[9px] leading-relaxed text-gray-500">Use only a public operator feed. Loaded stations: {mobility.length.toLocaleString()}</p>
                   </div>}
                   {externalLayerStatus !== 'idle' && <p className="mt-2 text-[10px] text-gray-500">{externalLayerStatus === 'loading' ? 'Loading public data…' : externalLayerStatus === 'ready' ? `${aircraft.length.toLocaleString()} aircraft · ${satellites.length.toLocaleString()} satellites` : 'Public source temporarily unavailable'}</p>}
                 </div>

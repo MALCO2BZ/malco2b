@@ -458,11 +458,15 @@ function App() {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [filterSearch, setFilterSearch] = useState('');
   const [cameraSearch, setCameraSearch] = useState('');
-  const [activeLayers, setActiveLayers] = useState({ cameras: true, aircraft: false, satellites: false });
+  const [activeLayers, setActiveLayers] = useState({ cameras: true, aircraft: false, satellites: false, satelliteImagery: false });
   const [cameraLiveOnly, setCameraLiveOnly] = useState(false);
   const [aircraft, setAircraft] = useState<AircraftPoint[]>([]);
   const [satellites, setSatellites] = useState<SatellitePoint[]>([]);
   const [externalLayerStatus, setExternalLayerStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const satelliteImageryDate = useMemo(() => {
+    const date = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    return date.toISOString().slice(0, 10);
+  }, []);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -1256,6 +1260,16 @@ function App() {
               />
             </Source>
           )}
+          {activeLayers.satelliteImagery && (
+            <Source
+              id="nasa-satellite-imagery"
+              type="raster"
+              tiles={[`https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor/default/${satelliteImageryDate}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`]}
+              tileSize={256}
+            >
+              <Layer id="nasa-satellite-imagery-layer" type="raster" beforeId="camera-points" paint={{ 'raster-opacity': 0.58, 'raster-fade-duration': 0 }} />
+            </Source>
+          )}
           {showBorders && (
             <Source id="borders" type="geojson" data="https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_0_countries.geojson">
               <Layer
@@ -1303,6 +1317,16 @@ function App() {
             mapStyle={mapStyle}
             projection={{ type: 'mercator' }}
           >
+            {activeLayers.satelliteImagery && (
+              <Source
+                id="nasa-satellite-imagery-2d"
+                type="raster"
+                tiles={[`https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor/default/${satelliteImageryDate}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`]}
+                tileSize={256}
+              >
+                <Layer id="nasa-satellite-imagery-layer-2d" type="raster" paint={{ 'raster-opacity': 0.58, 'raster-fade-duration': 0 }} />
+              </Source>
+            )}
             {showBorders && (
               <Source id="borders-2d" type="geojson" data="https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_0_countries.geojson">
                 <Layer
@@ -1761,6 +1785,7 @@ function App() {
                     ['cameras', 'Public cameras', Scan],
                     ['aircraft', 'Aircraft · OpenSky', Plane],
                     ['satellites', 'Satellites · CelesTrak', Satellite],
+                    ['satelliteImagery', 'Earth imagery · NASA GIBS', Satellite],
                   ] as const).map(([key, label, Icon]) => (
                     <button key={key} onClick={() => setActiveLayers(prev => ({ ...prev, [key]: !prev[key] }))} className="w-full flex items-center justify-between py-2 text-left">
                       <span className="flex items-center gap-2 text-xs text-gray-300"><Icon className="w-4 h-4 text-[#00e5ff]" />{label}</span>

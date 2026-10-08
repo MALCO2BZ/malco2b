@@ -10,6 +10,16 @@ body, html, #root {
   color: white;
   font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
   overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.maplibregl-canvas-container,
+.maplibregl-canvas {
+  touch-action: none;
+}
+
+button, input, a {
+  -webkit-tap-highlight-color: transparent;
 }
 
 @media (max-width: 640px) {
@@ -19,6 +29,8 @@ body, html, #root {
     width: calc(100vw - 24px) !important;
     height: min(78vh, 560px) !important;
     max-width: calc(100vw - 24px) !important;
+    min-width: 0 !important;
+    min-height: min(400px, calc(100dvh - 96px)) !important;
   }
 
   .worldcam-hud {
@@ -35,5 +47,14 @@ body, html, #root {
   .worldcam-coordinates {
     left: 12px !important;
     bottom: max(12px, env(safe-area-inset-bottom)) !important;
+  }
+
+  .camera-panel .drag-handle {
+    cursor: default !important;
+    padding: 14px 16px !important;
+  }
+
+  .camera-panel > div > div:last-child {
+    padding: 14px 16px !important;
   }
 }

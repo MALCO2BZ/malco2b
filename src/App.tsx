@@ -4,7 +4,7 @@ import { ScatterplotLayer } from '@deck.gl/layers';
 import MapGL, { Source, Layer } from 'react-map-gl/maplibre';
 import type { MapMouseEvent, MapGeoJSONFeature, ExpressionSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { Scan, Eye, Activity, X, MapPin, RefreshCw, Clock, Video, ChevronUp, ChevronDown, Settings, Shuffle, Filter, Check, Search, ExternalLink, Plane, Satellite, Bike } from 'lucide-react';
+import { Scan, Eye, Activity, X, MapPin, RefreshCw, Clock, Video, ChevronUp, ChevronDown, Settings, Shuffle, Filter, Check, Search, ExternalLink, Plane, Satellite, Bike, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Rnd } from 'react-rnd';
 import Hls from 'hls.js';
@@ -36,6 +36,11 @@ const scrollbarStyles = `
 `;
 
 const CROSSHAIR_COLOR = '#ff2d2d';
+
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+};
 
 // "Small" preset (r 22->14, 13->8), matched from neonbladeui's live demo — only ring
 // size shrinks; thickness, arm length/gap, speed, and arc gap match the default.
@@ -479,6 +484,7 @@ function App() {
     const saved = window.localStorage.getItem('worldscope.performanceMode');
     return saved === null ? window.innerWidth < 900 : saved === 'true';
   });
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const satelliteImageryDate = useMemo(() => {
     const date = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
     return date.toISOString().slice(0, 10);
@@ -496,6 +502,22 @@ function App() {
   const [syncProgress, setSyncProgress] = useState<{ plugin: string; pct: number; eta: string } | null>(null);
   const syncLogRef = useRef<HTMLDivElement | null>(null);
   const syncAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const onBeforeInstall = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+    window.addEventListener('beforeinstallprompt', onBeforeInstall);
+    return () => window.removeEventListener('beforeinstallprompt', onBeforeInstall);
+  }, []);
+
+  const installWorldScope = async () => {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    await installPrompt.userChoice;
+    setInstallPrompt(null);
+  };
 
   // Keep heavy public layers responsive on phones and low-memory browsers. The
   // complete fetched arrays remain available for counts/status; only the GPU
@@ -1797,6 +1819,15 @@ function App() {
                   <X className="w-4 h-4" />
                 </button>
               </div>
+
+              {installPrompt && (
+                <button
+                  onClick={installWorldScope}
+                  className="mb-5 flex items-center justify-center gap-2 rounded-xl border border-[#00e5ff]/30 bg-[#00e5ff]/10 px-3 py-2.5 text-xs font-semibold text-[#00e5ff] hover:bg-[#00e5ff]/20 transition-colors"
+                >
+                  <Download className="w-4 h-4" /> Installer WorldScope sur cet appareil
+                </button>
+              )}
 
               {/* Scrollable body — capped panel height so it never overlaps the top-right HUD */}
               <div className="flex-1 min-h-0 overflow-y-auto pr-2 -mr-3 custom-scrollbar">

@@ -2,8 +2,12 @@
   "name": "WorldScope — Public World Atlas",
   "short_name": "WorldScope",
   "description": "Explore intentionally public cameras, aircraft, satellites and shared mobility.",
+  "id": "/?app=worldscope",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "orientation": "any",
   "background_color": "#05090C",
   "theme_color": "#05090C",
   "icons": [

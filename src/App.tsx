@@ -627,10 +627,11 @@ function App() {
       return;
     }
     let cancelled = false;
+    const controller = new AbortController();
     const loadAircraft = async () => {
       setExternalLayerStatus('loading');
       try {
-        const response = await fetch('https://opensky-network.org/api/states/all');
+        const response = await fetch('https://opensky-network.org/api/states/all', { signal: controller.signal });
         if (!response.ok) throw new Error(`OpenSky ${response.status}`);
         const payload = await response.json() as { states?: unknown[][] };
         const points = (payload.states ?? []).flatMap((row): AircraftPoint[] => {
@@ -648,7 +649,7 @@ function App() {
     };
     loadAircraft();
     const timer = window.setInterval(loadAircraft, 60_000);
-    return () => { cancelled = true; window.clearInterval(timer); };
+    return () => { cancelled = true; controller.abort(); window.clearInterval(timer); };
   }, [activeLayers.aircraft]);
 
   // Public satellite layer from CelesTrak GP/TLE data. Only a bounded active
@@ -659,10 +660,11 @@ function App() {
       return;
     }
     let cancelled = false;
+    const controller = new AbortController();
     const loadSatellites = async () => {
       setExternalLayerStatus('loading');
       try {
-        const text = await fetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=ACTIVE&FORMAT=TLE').then(r => {
+        const text = await fetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=ACTIVE&FORMAT=TLE', { signal: controller.signal }).then(r => {
           if (!r.ok) throw new Error(`CelesTrak ${r.status}`);
           return r.text();
         });
@@ -690,7 +692,7 @@ function App() {
     };
     loadSatellites();
     const timer = window.setInterval(loadSatellites, 10 * 60_000);
-    return () => { cancelled = true; window.clearInterval(timer); };
+    return () => { cancelled = true; controller.abort(); window.clearInterval(timer); };
   }, [activeLayers.satellites]);
 
   // Reset the sync UI back to the three idle buttons.
@@ -810,7 +812,9 @@ function App() {
     const idx: number[] = [];
     const active = new Set(filterCountries);
     for (let i = 0; i < data.count; i++) {
-      if (!data.live[i] && data.de[i] !== 1) continue;
+      // Never render a source that did not pass the ingestion eligibility check.
+      // A URL or a claimed stream is not sufficient proof of intentional public access.
+      if (data.de[i] !== 1) continue;
       if (cameraLiveOnly && !data.live[i]) continue;
       if (cameraSearch.trim()) {
         const q = cameraSearch.trim().toLocaleLowerCase();
@@ -875,6 +879,7 @@ function App() {
     if (!selectedCamera || selectedCamera.properties.streamUrl) return; // streams self-refresh
     const ms = refreshIntervalMs(selectedCamera);
     refreshTimer.current = setInterval(() => {
+      if (document.hidden) return;
       setImgCacheBust(Date.now());
       setLastRefresh(new Date());
       setImgLoaded(false);

@@ -1224,6 +1224,16 @@ function App() {
 
   const counts = { live: liveIdx.length, still: stillIdx.length };
 
+  const focusLayer = (layer: 'all' | 'cameras' | 'aircraft' | 'satellites' | 'satelliteImagery' | 'mobility') => {
+    setActiveLayers({
+      cameras: layer === 'all' || layer === 'cameras',
+      aircraft: layer === 'all' || layer === 'aircraft',
+      satellites: layer === 'all' || layer === 'satellites',
+      satelliteImagery: layer === 'satelliteImagery',
+      mobility: layer === 'all' || layer === 'mobility',
+    });
+  };
+
   const feedUrl = selectedCamera?.properties.feedUrl ?? '';
   const streamUrl = selectedCamera?.properties.streamUrl ?? '';
   // hasStream is true only when a stream URL exists AND it hasn't failed CORS/Network checks
@@ -1870,6 +1880,21 @@ function App() {
                       </span>
                     </button>
                   ))}
+                  <div className="mt-3 border-t border-white/5 pt-3">
+                    <p className="mb-2 text-[10px] uppercase tracking-wider text-gray-500">Quick focus</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {([
+                        ['all', 'Everything'],
+                        ['cameras', 'Cameras'],
+                        ['aircraft', 'Aircraft only'],
+                        ['satellites', 'Satellites only'],
+                        ['mobility', 'Bikes/scooters only'],
+                        ['satelliteImagery', 'Satellite view'],
+                      ] as const).map(([key, label]) => (
+                        <button key={key} onClick={() => focusLayer(key)} className="rounded-lg border border-white/10 bg-white/5 px-2 py-2 text-[10px] text-gray-300 hover:border-[#00e5ff]/50 hover:text-white transition-colors">{label}</button>
+                      ))}
+                    </div>
+                  </div>
                   <button onClick={() => setCameraLiveOnly(prev => !prev)} className="mt-2 w-full flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-left">
                     <span className="text-xs text-gray-300">Live video only</span>
                     <span className={`text-[10px] font-semibold uppercase tracking-wider ${cameraLiveOnly ? 'text-[#00ff88]' : 'text-gray-500'}`}>{cameraLiveOnly ? 'ON' : 'OFF'}</span>

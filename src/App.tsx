@@ -4,10 +4,11 @@ import { ScatterplotLayer } from '@deck.gl/layers';
 import MapGL, { Source, Layer } from 'react-map-gl/maplibre';
 import type { MapMouseEvent, MapGeoJSONFeature, ExpressionSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { Scan, Eye, Activity, X, MapPin, RefreshCw, Clock, Video, ChevronUp, ChevronDown, Settings, Shuffle, Filter, Check, Search, ExternalLink } from 'lucide-react';
+import { Scan, Eye, Activity, X, MapPin, RefreshCw, Clock, Video, ChevronUp, ChevronDown, Settings, Shuffle, Filter, Check, Search, ExternalLink, Plane, Satellite } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Rnd } from 'react-rnd';
 import Hls from 'hls.js';
+import { twoline2satrec, propagate, gstime, eciToGeodetic, degreesLong, degreesLat } from 'satellite.js';
 import * as countries from 'i18n-iso-countries';
 import enLocale from 'i18n-iso-countries/langs/en.json';
 
@@ -276,6 +277,25 @@ interface CameraFeature {
   properties: CameraProperties;
 }
 
+interface AircraftPoint {
+  kind: 'aircraft';
+  id: string;
+  callsign: string;
+  longitude: number;
+  latitude: number;
+  altitude: number;
+  velocity: number;
+}
+
+interface SatellitePoint {
+  kind: 'satellite';
+  id: string;
+  name: string;
+  longitude: number;
+  latitude: number;
+  altitude: number;
+}
+
 // Three-tier payload from store.py:export_compact. Dict-encoded parallel arrays let
 // deck.gl render without one JS object per camera. Split because per-camera strings
 // (~80% of a combined payload) only matter for whichever camera is open:
@@ -438,6 +458,10 @@ function App() {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [filterSearch, setFilterSearch] = useState('');
   const [cameraSearch, setCameraSearch] = useState('');
+  const [activeLayers, setActiveLayers] = useState({ cameras: true, aircraft: false, satellites: false });
+  const [aircraft, setAircraft] = useState<AircraftPoint[]>([]);
+  const [satellites, setSatellites] = useState<SatellitePoint[]>([]);
+  const [externalLayerStatus, setExternalLayerStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -594,6 +618,80 @@ function App() {
     return () => { cancelled = true; };
   }, [isSettingsOpen]);
 
+  // Public aircraft layer. It is opt-in because global OpenSky requests are
+  // rate-limited and much larger than a camera detail request.
+  useEffect(() => {
+    if (!activeLayers.aircraft) {
+      setAircraft([]);
+      return;
+    }
+    let cancelled = false;
+    const loadAircraft = async () => {
+      setExternalLayerStatus('loading');
+      try {
+        const response = await fetch('https://opensky-network.org/api/states/all');
+        if (!response.ok) throw new Error(`OpenSky ${response.status}`);
+        const payload = await response.json() as { states?: unknown[][] };
+        const points = (payload.states ?? []).flatMap((row): AircraftPoint[] => {
+          const longitude = Number(row[5]);
+          const latitude = Number(row[6]);
+          if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) return [];
+          return [{
+            kind: 'aircraft', id: String(row[0] ?? ''),
+            callsign: String(row[1] ?? '').trim() || 'Unknown aircraft',
+            longitude, latitude, altitude: Number(row[7]) || 0, velocity: Number(row[9]) || 0,
+          }];
+        });
+        if (!cancelled) { setAircraft(points); setExternalLayerStatus('ready'); }
+      } catch { if (!cancelled) setExternalLayerStatus('error'); }
+    };
+    loadAircraft();
+    const timer = window.setInterval(loadAircraft, 60_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [activeLayers.aircraft]);
+
+  // Public satellite layer from CelesTrak GP/TLE data. Only a bounded active
+  // subset is materialized; the layer is opt-in and refreshed infrequently.
+  useEffect(() => {
+    if (!activeLayers.satellites) {
+      setSatellites([]);
+      return;
+    }
+    let cancelled = false;
+    const loadSatellites = async () => {
+      setExternalLayerStatus('loading');
+      try {
+        const text = await fetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=ACTIVE&FORMAT=TLE').then(r => {
+          if (!r.ok) throw new Error(`CelesTrak ${r.status}`);
+          return r.text();
+        });
+        const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+        const now = new Date();
+        const points: SatellitePoint[] = [];
+        for (let i = 0; i + 2 < lines.length && points.length < 3000; i += 3) {
+          if (!lines[i + 1].startsWith('1 ') || !lines[i + 2].startsWith('2 ')) continue;
+          try {
+            const satrec = twoline2satrec(lines[i + 1], lines[i + 2]);
+            const position = propagate(satrec, now);
+            if (!position || typeof position === 'boolean') continue;
+            const eci = 'position' in position ? position.position : position;
+            if (!eci) continue;
+            const geo = eciToGeodetic(eci, gstime(now));
+            const longitude = degreesLong(geo.longitude);
+            const latitude = degreesLat(geo.latitude);
+            if (Number.isFinite(longitude) && Number.isFinite(latitude)) {
+              points.push({ kind: 'satellite', id: lines[i], name: lines[i], longitude, latitude, altitude: geo.height });
+            }
+          } catch { /* skip malformed public element sets */ }
+        }
+        if (!cancelled) { setSatellites(points); setExternalLayerStatus('ready'); }
+      } catch { if (!cancelled) setExternalLayerStatus('error'); }
+    };
+    loadSatellites();
+    const timer = window.setInterval(loadSatellites, 10 * 60_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [activeLayers.satellites]);
+
   // Reset the sync UI back to the three idle buttons.
   const resetSync = () => {
     setSyncStatus('idle'); setSyncLog([]); setSyncSummary(null); setSyncTarget(null);
@@ -707,7 +805,7 @@ function App() {
   // Render set for both map paths: passes the country filter and is actually
   // displayable (mirrors isFeedWorking()) — hides dead points instead of cluttering the map.
   const filteredIndices = useMemo(() => {
-    if (!data) return [] as number[];
+    if (!data || !activeLayers.cameras) return [] as number[];
     const idx: number[] = [];
     const active = new Set(filterCountries);
     for (let i = 0; i < data.count; i++) {
@@ -725,7 +823,7 @@ function App() {
       }
     }
     return idx;
-  }, [data, labels, filterCountries, cameraSearch]);
+  }, [data, labels, filterCountries, cameraSearch, activeLayers.cameras]);
 
   const searchResults = useMemo(() => {
     if (!data || !labels || cameraSearch.trim().length < 2) return [] as { index: number; camera: CameraFeature }[];
@@ -736,17 +834,28 @@ function App() {
   // 2D default never materializes 100k+ features.
   const camerasGeoJson = useMemo(() => {
     if (!data || !is3D) return { type: 'FeatureCollection', features: [] } as GeoJSON.FeatureCollection;
+    const features = [
+      ...filteredIndices.map(i => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [data.lon[i], data.lat[i]] },
+        properties: { i, live: data.live[i], layer: 'camera' },
+      })),
+      ...(activeLayers.aircraft ? aircraft.map((point, i) => ({
+        type: 'Feature', geometry: { type: 'Point', coordinates: [point.longitude, point.latitude] },
+        properties: { i, live: 1, layer: 'aircraft' },
+      })) : []),
+      ...(activeLayers.satellites ? satellites.map((point, i) => ({
+        type: 'Feature', geometry: { type: 'Point', coordinates: [point.longitude, point.latitude] },
+        properties: { i, live: 0, layer: 'satellite' },
+      })) : []),
+    ];
     return {
       type: 'FeatureCollection',
       // Carry the array index, not id/streamUrl — MapLibre serializes every property
       // to its tiler worker, saving ~10MB and removing the need for an id->index lookup.
-      features: filteredIndices.map(i => ({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [data.lon[i], data.lat[i]] },
-        properties: { i, live: data.live[i] },
-      })),
+      features,
     } as GeoJSON.FeatureCollection;
-  }, [data, is3D, filteredIndices]);
+  }, [data, is3D, filteredIndices, activeLayers.aircraft, activeLayers.satellites, aircraft, satellites]);
 
   const hoveredGeoJson = useMemo(() => ({
     type: 'FeatureCollection',
@@ -890,6 +999,7 @@ function App() {
   const onMapClick = (e: MapMouseEvent) => {
     const feature = pickNear(e);
     if (feature && data) {
+      if (feature.properties?.layer !== 'camera') return;
       const i = feature.properties?.i;
       if (typeof i === 'number') selectCamera(i);
     }
@@ -897,6 +1007,11 @@ function App() {
 
   const onMapMouseMove = (e: MapMouseEvent) => {
     const feature = (e as MapMouseEvent & { features?: MapGeoJSONFeature[] }).features?.[0];
+    if (feature?.properties?.layer && feature.properties.layer !== 'camera') {
+      hoveredIdxRef.current = -1;
+      setHovered(null);
+      return;
+    }
     const idx = feature && data ? (feature.properties?.i ?? -1) : -1;
     // Only update hover state when the hovered camera changes.
     if (idx !== hoveredIdxRef.current) {
@@ -992,6 +1107,18 @@ function App() {
       autoHighlight: true,
       highlightColor: [255, 255, 255, 255]
     }),
+    ...(activeLayers.aircraft ? [new ScatterplotLayer<AircraftPoint>({
+      id: 'public-aircraft', data: aircraft,
+      getPosition: d => [d.longitude, d.latitude],
+      getFillColor: [255, 170, 0, 230], getRadius: 12000,
+      radiusMinPixels: 3, radiusMaxPixels: 9, pickable: true,
+    })] : []),
+    ...(activeLayers.satellites ? [new ScatterplotLayer<SatellitePoint>({
+      id: 'public-satellites', data: satellites,
+      getPosition: d => [d.longitude, d.latitude],
+      getFillColor: [190, 120, 255, 210], getRadius: 9000,
+      radiusMinPixels: 2, radiusMaxPixels: 7, pickable: true,
+    })] : []),
     ...(selectedCamera ? [
       new ScatterplotLayer<CameraFeature>({
         id: 'camera-highlight',
@@ -1065,10 +1192,10 @@ function App() {
                   14, ['case', GLOBE_IS_LIVE, 8, 5.5]
                 ],
                 'circle-color': [
-                  'case',
-                  GLOBE_IS_LIVE,
-                  '#00ff88',
-                  '#00e5ff'
+                  'match', ['get', 'layer'],
+                  'aircraft', '#ffaa00',
+                  'satellite', '#be78ff',
+                  ['case', GLOBE_IS_LIVE, '#00ff88', '#00e5ff']
                 ],
                 'circle-opacity': [
                   'case',
@@ -1160,8 +1287,7 @@ function App() {
             if (coordinate) writeCoord((coordinate as number[])[0], (coordinate as number[])[1]);
           }}
           onClick={({ object }) => {
-            const i = object as number | null;
-            if (i != null) selectCamera(i);
+            if (typeof object === 'number') selectCamera(object);
           }}
           getCursor={() => 'none'}
         >
@@ -1619,6 +1745,24 @@ function App() {
                         }`}
                     />
                   </button>
+                </div>
+
+                <div className="mt-6 pt-6 border-t border-white/5">
+                  <p className="text-gray-200 text-sm font-semibold">Public data layers</p>
+                  <p className="text-gray-500 text-[10px] uppercase tracking-wider mt-1 mb-3">Loaded only when enabled</p>
+                  {([
+                    ['cameras', 'Public cameras', Scan],
+                    ['aircraft', 'Aircraft · OpenSky', Plane],
+                    ['satellites', 'Satellites · CelesTrak', Satellite],
+                  ] as const).map(([key, label, Icon]) => (
+                    <button key={key} onClick={() => setActiveLayers(prev => ({ ...prev, [key]: !prev[key] }))} className="w-full flex items-center justify-between py-2 text-left">
+                      <span className="flex items-center gap-2 text-xs text-gray-300"><Icon className="w-4 h-4 text-[#00e5ff]" />{label}</span>
+                      <span className={`w-9 h-5 rounded-full border relative ${activeLayers[key] ? 'bg-[#00e5ff]/20 border-[#00e5ff]/50' : 'bg-white/5 border-white/10'}`}>
+                        <span className={`absolute top-0.5 w-3.5 h-3.5 rounded-full ${activeLayers[key] ? 'bg-[#00e5ff] left-4' : 'bg-gray-500 left-0.5'}`} />
+                      </span>
+                    </button>
+                  ))}
+                  {externalLayerStatus !== 'idle' && <p className="mt-2 text-[10px] text-gray-500">{externalLayerStatus === 'loading' ? 'Loading public data…' : externalLayerStatus === 'ready' ? `${aircraft.length.toLocaleString()} aircraft · ${satellites.length.toLocaleString()} satellites` : 'Public source temporarily unavailable'}</p>}
                 </div>
               </div>
 

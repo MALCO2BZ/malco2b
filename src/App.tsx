@@ -459,6 +459,7 @@ function App() {
   const [filterSearch, setFilterSearch] = useState('');
   const [cameraSearch, setCameraSearch] = useState('');
   const [activeLayers, setActiveLayers] = useState({ cameras: true, aircraft: false, satellites: false });
+  const [cameraLiveOnly, setCameraLiveOnly] = useState(false);
   const [aircraft, setAircraft] = useState<AircraftPoint[]>([]);
   const [satellites, setSatellites] = useState<SatellitePoint[]>([]);
   const [externalLayerStatus, setExternalLayerStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
@@ -810,6 +811,7 @@ function App() {
     const active = new Set(filterCountries);
     for (let i = 0; i < data.count; i++) {
       if (!data.live[i] && data.de[i] !== 1) continue;
+      if (cameraLiveOnly && !data.live[i]) continue;
       if (cameraSearch.trim()) {
         const q = cameraSearch.trim().toLocaleLowerCase();
         const name = labels?.name[i] || '';
@@ -823,7 +825,7 @@ function App() {
       }
     }
     return idx;
-  }, [data, labels, filterCountries, cameraSearch, activeLayers.cameras]);
+  }, [data, labels, filterCountries, cameraSearch, activeLayers.cameras, cameraLiveOnly]);
 
   const searchResults = useMemo(() => {
     if (!data || !labels || cameraSearch.trim().length < 2) return [] as { index: number; camera: CameraFeature }[];
@@ -1762,6 +1764,10 @@ function App() {
                       </span>
                     </button>
                   ))}
+                  <button onClick={() => setCameraLiveOnly(prev => !prev)} className="mt-2 w-full flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-left">
+                    <span className="text-xs text-gray-300">Live video only</span>
+                    <span className={`text-[10px] font-semibold uppercase tracking-wider ${cameraLiveOnly ? 'text-[#00ff88]' : 'text-gray-500'}`}>{cameraLiveOnly ? 'ON' : 'OFF'}</span>
+                  </button>
                   {externalLayerStatus !== 'idle' && <p className="mt-2 text-[10px] text-gray-500">{externalLayerStatus === 'loading' ? 'Loading public data…' : externalLayerStatus === 'ready' ? `${aircraft.length.toLocaleString()} aircraft · ${satellites.length.toLocaleString()} satellites` : 'Public source temporarily unavailable'}</p>}
                 </div>
               </div>

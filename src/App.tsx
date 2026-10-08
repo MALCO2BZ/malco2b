@@ -475,6 +475,10 @@ function App() {
   const [mobility, setMobility] = useState<MobilityPoint[]>([]);
   const [mobilityFeedUrl, setMobilityFeedUrl] = useState(() => window.localStorage.getItem('worldscope.gbfsUrl') || window.localStorage.getItem('worldcam.gbfsUrl') || '');
   const [externalLayerStatus, setExternalLayerStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [performanceMode, setPerformanceMode] = useState(() => {
+    const saved = window.localStorage.getItem('worldscope.performanceMode');
+    return saved === null ? window.innerWidth < 900 : saved === 'true';
+  });
   const satelliteImageryDate = useMemo(() => {
     const date = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
     return date.toISOString().slice(0, 10);
@@ -492,6 +496,12 @@ function App() {
   const [syncProgress, setSyncProgress] = useState<{ plugin: string; pct: number; eta: string } | null>(null);
   const syncLogRef = useRef<HTMLDivElement | null>(null);
   const syncAbortRef = useRef<AbortController | null>(null);
+
+  // Keep heavy public layers responsive on phones and low-memory browsers. The
+  // complete fetched arrays remain available for counts/status; only the GPU
+  // render set is capped when performance mode is enabled.
+  const renderAircraft = useMemo(() => performanceMode ? aircraft.slice(0, 5000) : aircraft, [aircraft, performanceMode]);
+  const renderSatellites = useMemo(() => performanceMode ? satellites.slice(0, 1500) : satellites, [satellites, performanceMode]);
 
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString([], {
@@ -664,7 +674,7 @@ function App() {
       } catch { if (!cancelled) setExternalLayerStatus('error'); }
     };
     loadAircraft();
-    const timer = window.setInterval(loadAircraft, 60_000);
+    const timer = window.setInterval(() => { if (!document.hidden) loadAircraft(); }, 60_000);
     return () => { cancelled = true; controller.abort(); window.clearInterval(timer); };
   }, [activeLayers.aircraft]);
 
@@ -687,7 +697,8 @@ function App() {
         const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
         const now = new Date();
         const points: SatellitePoint[] = [];
-        for (let i = 0; i + 2 < lines.length && points.length < 3000; i += 3) {
+        const pointLimit = performanceMode ? 1500 : 3000;
+        for (let i = 0; i + 2 < lines.length && points.length < pointLimit; i += 3) {
           if (!lines[i + 1].startsWith('1 ') || !lines[i + 2].startsWith('2 ')) continue;
           try {
             const satrec = twoline2satrec(lines[i + 1], lines[i + 2]);
@@ -707,9 +718,9 @@ function App() {
       } catch { if (!cancelled) setExternalLayerStatus('error'); }
     };
     loadSatellites();
-    const timer = window.setInterval(loadSatellites, 10 * 60_000);
+    const timer = window.setInterval(() => { if (!document.hidden) loadSatellites(); }, 10 * 60_000);
     return () => { cancelled = true; controller.abort(); window.clearInterval(timer); };
-  }, [activeLayers.satellites]);
+  }, [activeLayers.satellites, performanceMode]);
 
   // Public shared-mobility layer. Operators publish GBFS feeds for stations and
   // available vehicles; this never probes a private device or local network.
@@ -759,7 +770,7 @@ function App() {
     };
     window.localStorage.setItem('worldscope.gbfsUrl', mobilityFeedUrl.trim());
     loadMobility();
-    const timer = window.setInterval(loadMobility, 5 * 60_000);
+    const timer = window.setInterval(() => { if (!document.hidden) loadMobility(); }, 5 * 60_000);
     return () => { cancelled = true; controller.abort(); window.clearInterval(timer); };
   }, [activeLayers.mobility, mobilityFeedUrl]);
 
@@ -914,11 +925,11 @@ function App() {
         geometry: { type: 'Point', coordinates: [data.lon[i], data.lat[i]] },
         properties: { i, live: data.live[i], layer: 'camera' },
       })),
-      ...(activeLayers.aircraft ? aircraft.map((point, i) => ({
+      ...(activeLayers.aircraft ? renderAircraft.map((point, i) => ({
         type: 'Feature', geometry: { type: 'Point', coordinates: [point.longitude, point.latitude] },
         properties: { i, live: 1, layer: 'aircraft' },
       })) : []),
-      ...(activeLayers.satellites ? satellites.map((point, i) => ({
+      ...(activeLayers.satellites ? renderSatellites.map((point, i) => ({
         type: 'Feature', geometry: { type: 'Point', coordinates: [point.longitude, point.latitude] },
         properties: { i, live: 0, layer: 'satellite' },
       })) : []),
@@ -933,7 +944,7 @@ function App() {
       // to its tiler worker, saving ~10MB and removing the need for an id->index lookup.
       features,
     } as GeoJSON.FeatureCollection;
-  }, [data, is3D, filteredIndices, activeLayers.aircraft, activeLayers.satellites, activeLayers.mobility, aircraft, satellites, mobility]);
+  }, [data, is3D, filteredIndices, activeLayers.aircraft, activeLayers.satellites, activeLayers.mobility, renderAircraft, renderSatellites, mobility]);
 
   const hoveredGeoJson = useMemo(() => ({
     type: 'FeatureCollection',
@@ -1187,13 +1198,13 @@ function App() {
       highlightColor: [255, 255, 255, 255]
     }),
     ...(activeLayers.aircraft ? [new ScatterplotLayer<AircraftPoint>({
-      id: 'public-aircraft', data: aircraft,
+      id: 'public-aircraft', data: renderAircraft,
       getPosition: d => [d.longitude, d.latitude],
       getFillColor: [255, 170, 0, 230], getRadius: 12000,
       radiusMinPixels: 3, radiusMaxPixels: 9, pickable: true,
     })] : []),
     ...(activeLayers.satellites ? [new ScatterplotLayer<SatellitePoint>({
-      id: 'public-satellites', data: satellites,
+      id: 'public-satellites', data: renderSatellites,
       getPosition: d => [d.longitude, d.latitude],
       getFillColor: [190, 120, 255, 210], getRadius: 9000,
       radiusMinPixels: 2, radiusMaxPixels: 7, pickable: true,
@@ -1859,6 +1870,27 @@ function App() {
                       animate={{ x: is3D ? 26 : 4 }}
                       className={`absolute top-1 w-3.5 h-3.5 rounded-full shadow-lg ${is3D ? 'bg-emerald-500' : 'bg-gray-500'
                         }`}
+                    />
+                  </button>
+                </div>
+
+                <div className="mt-5 flex items-center justify-between gap-8">
+                  <div>
+                    <p className="text-gray-200 text-sm font-semibold">Performance mobile</p>
+                    <p className="text-gray-500 text-[10px] uppercase tracking-wider mt-1">Limit heavy points, pause hidden refreshes</p>
+                  </div>
+                  <button
+                    aria-label="Toggle mobile performance mode"
+                    onClick={() => setPerformanceMode(prev => {
+                      const next = !prev;
+                      window.localStorage.setItem('worldscope.performanceMode', String(next));
+                      return next;
+                    })}
+                    className={`w-12 h-6 rounded-full transition-all duration-300 relative border ${performanceMode ? 'bg-emerald-500/20 border-emerald-500/50' : 'bg-white/5 border-white/10'}`}
+                  >
+                    <motion.div
+                      animate={{ x: performanceMode ? 26 : 4 }}
+                      className={`absolute top-1 w-3.5 h-3.5 rounded-full shadow-lg ${performanceMode ? 'bg-emerald-500' : 'bg-gray-500'}`}
                     />
                   </button>
                 </div>

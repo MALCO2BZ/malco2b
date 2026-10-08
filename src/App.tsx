@@ -7,8 +7,6 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { Scan, Eye, Activity, X, MapPin, RefreshCw, Clock, Video, ChevronUp, ChevronDown, Settings, Shuffle, Filter, Check, Search, ExternalLink, Plane, Satellite, Bike, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Rnd } from 'react-rnd';
-import Hls from 'hls.js';
-import { twoline2satrec, propagate, gstime, eciToGeodetic, degreesLong, degreesLat } from 'satellite.js';
 import * as countries from 'i18n-iso-countries';
 import enLocale from 'i18n-iso-countries/langs/en.json';
 
@@ -125,18 +123,35 @@ function HlsPlayer({ url, cacheBust, onFallback, proxyBase }: { url: string; cac
       return () => { if (videoRef.current) videoRef.current.onerror = null; };
     }
 
-    let hls: Hls | null = null;
+    let cancelled = false;
+    let hls: import('hls.js').default | null = null;
+    const video = videoRef.current;
 
-    if (Hls.isSupported()) {
+    // Safari/iOS can play HLS natively. This avoids downloading hls.js on the
+    // common mobile path where the browser already has a native decoder.
+    if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      // Safari fetches segments itself, so the proxy can't help — direct-only.
+      video.src = url;
+      video.addEventListener('loadedmetadata', () => {
+        video.play().catch(e => console.log('Autoplay prevented', e));
+      });
+      video.addEventListener('error', () => onFallback?.());
+      return () => { cancelled = true; };
+    }
+
+    // Keep hls.js out of the initial mobile bundle; load it only for a browser
+    // that needs JavaScript HLS playback and only when a stream is opened.
+    import('hls.js').then(({ default: Hls }) => {
+      if (cancelled || !videoRef.current || !Hls.isSupported()) {
+        if (!cancelled) onFallback?.();
+        return;
+      }
       hls = new Hls({ enableWorker: false });
-      // On retry, the proxy rewrites every segment/variant URI, so hls.js's
-      // follow-up fetches through it are CORS-enabled too.
       hls.loadSource(via(url));
       hls.attachMedia(videoRef.current);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         videoRef.current?.play().catch(e => console.log('Autoplay prevented', e));
       });
-      // Detect CORS blocks or dead streams and escalate (proxy → static).
       hls.on(Hls.Events.ERROR, (_evt, data) => {
         if (data.fatal) {
           console.log(`[WorldScope] Stream ${data.details}${useProxy ? ' (via proxy)' : ''}`);
@@ -144,18 +159,9 @@ function HlsPlayer({ url, cacheBust, onFallback, proxyBase }: { url: string; cac
           escalate();
         }
       });
-    } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-      // Safari fetches segments itself, so the proxy can't help — direct-only.
-      videoRef.current.src = url;
-      videoRef.current.addEventListener('loadedmetadata', () => {
-        videoRef.current?.play().catch(e => console.log('Autoplay prevented', e));
-      });
-      videoRef.current.addEventListener('error', () => onFallback?.());
-    } else {
-      onFallback?.();
-    }
+    }).catch(() => { if (!cancelled) onFallback?.(); });
 
-    return () => { if (hls) hls.destroy(); };
+    return () => { cancelled = true; if (hls) hls.destroy(); };
   }, [url, useProxy, proxyBase]);
 
   useEffect(() => {
@@ -717,6 +723,7 @@ function App() {
           return r.text();
         });
         const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+        const { twoline2satrec, propagate, gstime, eciToGeodetic, degreesLong, degreesLat } = await import('satellite.js');
         const now = new Date();
         const points: SatellitePoint[] = [];
         const pointLimit = performanceMode ? 1500 : 3000;

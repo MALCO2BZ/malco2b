@@ -460,6 +460,7 @@ function App() {
   const [cameraSearch, setCameraSearch] = useState('');
   const [activeLayers, setActiveLayers] = useState({ cameras: true, aircraft: false, satellites: false, satelliteImagery: false });
   const [cameraLiveOnly, setCameraLiveOnly] = useState(false);
+  const [satelliteOpacity, setSatelliteOpacity] = useState(0.58);
   const [aircraft, setAircraft] = useState<AircraftPoint[]>([]);
   const [satellites, setSatellites] = useState<SatellitePoint[]>([]);
   const [externalLayerStatus, setExternalLayerStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
@@ -1267,7 +1268,7 @@ function App() {
               tiles={[`https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor/default/${satelliteImageryDate}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`]}
               tileSize={256}
             >
-              <Layer id="nasa-satellite-imagery-layer" type="raster" beforeId="camera-points" paint={{ 'raster-opacity': 0.58, 'raster-fade-duration': 0 }} />
+              <Layer id="nasa-satellite-imagery-layer" type="raster" beforeId="camera-points" paint={{ 'raster-opacity': satelliteOpacity, 'raster-fade-duration': 0 }} />
             </Source>
           )}
           {showBorders && (
@@ -1324,7 +1325,7 @@ function App() {
                 tiles={[`https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor/default/${satelliteImageryDate}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`]}
                 tileSize={256}
               >
-                <Layer id="nasa-satellite-imagery-layer-2d" type="raster" paint={{ 'raster-opacity': 0.58, 'raster-fade-duration': 0 }} />
+                <Layer id="nasa-satellite-imagery-layer-2d" type="raster" paint={{ 'raster-opacity': satelliteOpacity, 'raster-fade-duration': 0 }} />
               </Source>
             )}
             {showBorders && (
@@ -1798,6 +1799,11 @@ function App() {
                     <span className="text-xs text-gray-300">Live video only</span>
                     <span className={`text-[10px] font-semibold uppercase tracking-wider ${cameraLiveOnly ? 'text-[#00ff88]' : 'text-gray-500'}`}>{cameraLiveOnly ? 'ON' : 'OFF'}</span>
                   </button>
+                  {activeLayers.satelliteImagery && <div className="mt-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5">
+                    <div className="flex items-center justify-between mb-2"><span className="text-xs text-gray-300">Satellite opacity</span><span className="text-[10px] text-[#be78ff]">{Math.round(satelliteOpacity * 100)}%</span></div>
+                    <input aria-label="Satellite imagery opacity" type="range" min="0.15" max="0.9" step="0.05" value={satelliteOpacity} onChange={e => setSatelliteOpacity(Number(e.target.value))} className="w-full h-1 accent-[#be78ff]" />
+                    <p className="mt-2 text-[9px] text-gray-500">NASA GIBS · image date {satelliteImageryDate}</p>
+                  </div>}
                   {externalLayerStatus !== 'idle' && <p className="mt-2 text-[10px] text-gray-500">{externalLayerStatus === 'loading' ? 'Loading public data…' : externalLayerStatus === 'ready' ? `${aircraft.length.toLocaleString()} aircraft · ${satellites.length.toLocaleString()} satellites` : 'Public source temporarily unavailable'}</p>}
                 </div>
               </div>

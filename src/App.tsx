@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useDeferredValue } from 'react';
 import DeckGL from '@deck.gl/react';
 import { ScatterplotLayer } from '@deck.gl/layers';
 import MapGL, { Source, Layer } from 'react-map-gl/maplibre';
@@ -478,6 +478,7 @@ function App() {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [filterSearch, setFilterSearch] = useState('');
   const [cameraSearch, setCameraSearch] = useState('');
+  const deferredCameraSearch = useDeferredValue(cameraSearch);
   const [activeLayers, setActiveLayers] = useState({ cameras: true, aircraft: false, satellites: false, satelliteImagery: false, mobility: false });
   const [cameraLiveOnly, setCameraLiveOnly] = useState(false);
   const [satelliteOpacity, setSatelliteOpacity] = useState(0.58);
@@ -919,7 +920,7 @@ function App() {
     if (!data || !activeLayers.cameras) return [] as number[];
     const idx: number[] = [];
     const active = new Set(filterCountries);
-    const query = cameraSearch.trim().toLocaleLowerCase();
+    const query = deferredCameraSearch.trim().toLocaleLowerCase();
     for (let i = 0; i < data.count; i++) {
       // Never render a source that did not pass the ingestion eligibility check.
       // A URL or a claimed stream is not sufficient proof of intentional public access.
@@ -937,12 +938,12 @@ function App() {
       }
     }
     return idx;
-  }, [data, labels, filterCountries, cameraSearch, activeLayers.cameras, cameraLiveOnly]);
+  }, [data, labels, filterCountries, deferredCameraSearch, activeLayers.cameras, cameraLiveOnly]);
 
   const searchResults = useMemo(() => {
-    if (!data || !labels || cameraSearch.trim().length < 2) return [] as { index: number; camera: CameraFeature }[];
+    if (!data || !labels || deferredCameraSearch.trim().length < 2) return [] as { index: number; camera: CameraFeature }[];
     return filteredIndices.slice(0, 8).map(index => ({ index, camera: camAt(data, index, labels, null) }));
-  }, [data, labels, filteredIndices, cameraSearch]);
+  }, [data, labels, filteredIndices, deferredCameraSearch]);
 
   // GeoJSON source for the 3D globe path. A globe does not benefit from drawing
   // every overlapping camera point, so reuse the worker's pixel bins at low zoom

@@ -919,17 +919,17 @@ function App() {
     if (!data || !activeLayers.cameras) return [] as number[];
     const idx: number[] = [];
     const active = new Set(filterCountries);
+    const query = cameraSearch.trim().toLocaleLowerCase();
     for (let i = 0; i < data.count; i++) {
       // Never render a source that did not pass the ingestion eligibility check.
       // A URL or a claimed stream is not sufficient proof of intentional public access.
       if (data.de[i] !== 1) continue;
       if (cameraLiveOnly && !data.live[i]) continue;
-      if (cameraSearch.trim()) {
-        const q = cameraSearch.trim().toLocaleLowerCase();
+      if (query) {
         const name = labels?.name[i] || '';
         const city = labels ? labels.cityDict[labels.city[i]] : '';
         const country = countryNameFor(data.ccDict[data.cc[i]], data.srcDict[data.src[i]]);
-        if (![name, city, country, data.ccDict[data.cc[i]]].some(v => v.toLocaleLowerCase().includes(q))) continue;
+        if (![name, city, country, data.ccDict[data.cc[i]]].some(v => v.toLocaleLowerCase().includes(query))) continue;
       }
       if (active.size === 0 ||
           active.has(countryNameFor(data.ccDict[data.cc[i]], data.srcDict[data.src[i]]))) {
@@ -944,12 +944,20 @@ function App() {
     return filteredIndices.slice(0, 8).map(index => ({ index, camera: camAt(data, index, labels, null) }));
   }, [data, labels, filteredIndices, cameraSearch]);
 
-  // GeoJSON source for the 3D globe path — built only when 3D is active so the
-  // 2D default never materializes 100k+ features.
+  // GeoJSON source for the 3D globe path. A globe does not benefit from drawing
+  // every overlapping camera point, so reuse the worker's pixel bins at low zoom
+  // and apply a hard safety ceiling on mobile/large datasets.
+  const globeCameraIndices = useMemo(() => {
+    if (!is3D) return [] as number[];
+    const binned = bins ? [...bins.still.idx, ...bins.live.idx] : filteredIndices;
+    const limit = performanceMode ? 50_000 : 100_000;
+    return binned.length > limit ? binned.slice(0, limit) : binned;
+  }, [is3D, bins, filteredIndices, performanceMode]);
+
   const camerasGeoJson = useMemo(() => {
     if (!data || !is3D) return { type: 'FeatureCollection', features: [] } as GeoJSON.FeatureCollection;
     const features = [
-      ...filteredIndices.map(i => ({
+      ...globeCameraIndices.map(i => ({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [data.lon[i], data.lat[i]] },
         properties: { i, live: data.live[i], layer: 'camera' },
@@ -973,7 +981,7 @@ function App() {
       // to its tiler worker, saving ~10MB and removing the need for an id->index lookup.
       features,
     } as GeoJSON.FeatureCollection;
-  }, [data, is3D, filteredIndices, activeLayers.aircraft, activeLayers.satellites, activeLayers.mobility, renderAircraft, renderSatellites, mobility]);
+  }, [data, is3D, globeCameraIndices, activeLayers.aircraft, activeLayers.satellites, activeLayers.mobility, renderAircraft, renderSatellites, mobility]);
 
   const hoveredGeoJson = useMemo(() => ({
     type: 'FeatureCollection',

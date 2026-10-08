@@ -1193,7 +1193,7 @@ function App() {
 
       {/* ── MOUSE COORDINATES ── */}
       {data && (
-        <div className="absolute bottom-8 left-8 z-30 pointer-events-none">
+        <div className="absolute bottom-8 left-8 z-30 pointer-events-none worldcam-coordinates">
           <div className="bg-[#05090C]/70 backdrop-blur-xl rounded-xl border border-white/10 px-6 py-4 flex flex-col gap-2 shadow-2xl">
             <div className="flex items-center gap-4">
               <Scan className="w-5 h-5 text-[#00e5ff]" />
@@ -1212,7 +1212,7 @@ function App() {
       )}
 
       {/* ── ARGUS HUD — TOP RIGHT ── */}
-      <div style={{ position: 'absolute', top: 32, right: 32, zIndex: 30, width: 340 }} className="pointer-events-auto">
+      <div style={{ position: 'absolute', top: 'clamp(12px, 4vw, 32px)', right: 'clamp(12px, 4vw, 32px)', zIndex: 30, width: 'min(340px, calc(100vw - 24px))' }} className="pointer-events-auto worldcam-hud">
         <motion.div
           animate={{ height: isHudMinimized ? 120 : 'auto' }}
           className="bg-[#05090C]/70 backdrop-blur-2xl rounded-3xl border border-white/10 p-8 shadow-2xl relative overflow-hidden"
@@ -1347,7 +1347,7 @@ function App() {
           minHeight={400}
           bounds="window"
           dragHandleClassName="drag-handle"
-          className="z-40"
+          className="z-40 camera-panel"
         >
           {/* Main Container - Strict Flex Column */}
           <div className="bg-[#05090C]/75 backdrop-blur-3xl rounded-3xl border border-white/10 flex flex-col h-full shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden">

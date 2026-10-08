@@ -1,0 +1,12 @@
+{
+  "name": "WorldCam — Public Camera Atlas",
+  "short_name": "WorldCam",
+  "description": "Explore intentionally public cameras and webcams around the world.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#05090C",
+  "theme_color": "#05090C",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

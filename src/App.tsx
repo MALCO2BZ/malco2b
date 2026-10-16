@@ -4,7 +4,7 @@ import { ScatterplotLayer } from '@deck.gl/layers';
 import MapGL, { Source, Layer } from 'react-map-gl/maplibre';
 import type { MapMouseEvent, MapGeoJSONFeature, ExpressionSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { Scan, Eye, Activity, X, MapPin, RefreshCw, Clock, Video, ChevronUp, ChevronDown, Settings, Shuffle, Filter, Check, Search, ExternalLink, Plane, Satellite, Bike, Download } from 'lucide-react';
+import { Scan, Eye, Activity, X, MapPin, RefreshCw, Clock, Video, ChevronUp, ChevronDown, Settings, Shuffle, Filter, Check, Search, ExternalLink, Plane, Satellite, Bike, Download, Share2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Rnd } from 'react-rnd';
 import * as countries from 'i18n-iso-countries';
@@ -497,6 +497,7 @@ function App() {
     return date.toISOString().slice(0, 10);
   }, []);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [shareNotice, setShareNotice] = useState(false);
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Data Sync (local control server, dev-only) ──
@@ -509,6 +510,22 @@ function App() {
   const [syncProgress, setSyncProgress] = useState<{ plugin: string; pct: number; eta: string } | null>(null);
   const syncLogRef = useRef<HTMLDivElement | null>(null);
   const syncAbortRef = useRef<AbortController | null>(null);
+
+  const shareWorldScope = async () => {
+    const url = window.location.href;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'WorldScope', text: 'Ouvrir WorldScope — atlas public mondial', url });
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(url);
+        setShareNotice(true);
+        window.setTimeout(() => setShareNotice(false), 2200);
+      }
+    } catch (error) {
+      // Closing the native share sheet is not an error worth surfacing.
+      if ((error as DOMException)?.name !== 'AbortError') console.warn('[WorldScope] Share unavailable', error);
+    }
+  };
 
   useEffect(() => {
     const onBeforeInstall = (event: Event) => {
@@ -1812,6 +1829,11 @@ function App() {
       ) : null}
 
       {/* ── SETTINGS MENU ── */}
+      {shareNotice && (
+        <div className="absolute bottom-8 right-8 z-50 -translate-y-[13.5rem] rounded-xl border border-emerald-400/30 bg-[#05090C]/90 px-3 py-2 text-xs text-emerald-300 shadow-xl backdrop-blur-xl" role="status">
+          Lien copié
+        </div>
+      )}
       <div className="absolute bottom-8 right-8 z-50 flex flex-col items-end gap-4">
         <AnimatePresence>
           {isSettingsOpen && (
@@ -2234,6 +2256,15 @@ function App() {
             }`}
         >
           <Settings className={`w-6 h-6 ${isSettingsOpen ? 'animate-none' : 'group-hover:rotate-45 transition-transform'}`} />
+        </button>
+
+        <button
+          onClick={shareWorldScope}
+          title="Partager WorldScope"
+          aria-label="Partager WorldScope"
+          className="w-14 h-14 rounded-full bg-[#05090C]/70 backdrop-blur-xl border border-white/10 text-gray-400 hover:text-[#00e5ff] hover:border-[#00e5ff]/50 flex items-center justify-center transition-all duration-300 shadow-2xl"
+        >
+          <Share2 className="w-6 h-6" />
         </button>
       </div>
 

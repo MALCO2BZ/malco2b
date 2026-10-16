@@ -4,6 +4,10 @@ WorldScope is the user-facing continuation of the MIT-licensed Argus camera map.
 
 WorldScope is an open-source, real-time interactive map of **229,000+ intentionally public traffic cameras and webcams**, with opt-in layers for aircraft, satellites, NASA imagery and shared mobility feeds.
 
+[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/MALCO2BZ/malco2b)
+
+The canonical repository is [MALCO2BZ/malco2b](https://github.com/MALCO2BZ/malco2b). The Netlify deploy uses `npm run build` and publishes `dist/` as configured in `netlify.toml`.
+
 See [LEGAL.md](LEGAL.md) for the reuse, provenance, privacy, and removal policy. The project remains derived from [GoSlowPoke168/Argus](https://github.com/GoSlowPoke168/Argus) under the MIT License; keep the notice in `LICENSE` when redistributing.
 
 It's two independent halves:
